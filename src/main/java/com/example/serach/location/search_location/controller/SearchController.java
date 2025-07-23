@@ -1,6 +1,7 @@
 package com.example.serach.location.search_location.controller;
 
 import com.example.serach.location.search_location.dto.PlaceInfoDTO;
+import com.example.serach.location.search_location.dto.PlaceInfoResponseDTO;
 import com.example.serach.location.search_location.dto.PolygonRequestDTO;
 import com.example.serach.location.search_location.entity.Place;
 import com.example.serach.location.search_location.service.SearchService;
@@ -21,15 +22,15 @@ public class SearchController {
     private SearchService searchService;
 
     @GetMapping("/coordinates")
-    public List<PlaceInfoDTO> getCitiesWithinRadius(@RequestParam Double centerLat, @RequestParam Double centerLng, @RequestParam Double radiusMeter ,@RequestParam(required = false) String category){
+    public PlaceInfoResponseDTO getCitiesWithinRadius(@RequestParam Double centerLat, @RequestParam Double centerLng, @RequestParam Double radiusMeter , @RequestParam(required = false) String category,  @RequestParam(required = false, defaultValue = "0") int offset, @RequestParam(required = false, defaultValue ="20") int limit){
         log.info("Request to search location for coordinates({},{}) within radius : {}",centerLat,centerLng,radiusMeter);
-        return  searchService.getPlacesWithinRadius(centerLat,centerLng,radiusMeter,category);
+        return  searchService.getPlacesWithinRadius(centerLat,centerLng,radiusMeter,category,offset,limit);
     }
 
     @PostMapping("/within-polygon")
-    public ResponseEntity<List<PlaceInfoDTO>> findPlacesWithinPolygon(@RequestBody PolygonRequestDTO polygonRequest) {
+    public ResponseEntity<PlaceInfoResponseDTO> findPlacesWithinPolygon(@RequestBody PolygonRequestDTO polygonRequest, @RequestParam(required = false, defaultValue = "0") int offset, @RequestParam(required = false, defaultValue ="20") int limit) {
         log.info("Request to search location for polygon : {} ",polygonRequest);
-        List<PlaceInfoDTO> places=searchService.findPlacesWithinPolygon(polygonRequest);
+        PlaceInfoResponseDTO places=searchService.findPlacesWithinPolygon(polygonRequest,offset,limit);
         return ResponseEntity.ok(places);
     }
 

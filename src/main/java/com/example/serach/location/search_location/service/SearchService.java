@@ -1,6 +1,8 @@
 package com.example.serach.location.search_location.service;
 
+import com.example.serach.location.search_location.dto.PlaceDetailedInfoDTO;
 import com.example.serach.location.search_location.dto.PlaceInfoDTO;
+import com.example.serach.location.search_location.dto.PlaceInfoResponseDTO;
 import com.example.serach.location.search_location.dto.PolygonRequestDTO;
 import com.example.serach.location.search_location.entity.Place;
 import com.example.serach.location.search_location.repository.PlacesRepository;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -28,14 +31,52 @@ public class SearchService {
         return placesRepository.getAllCategories();
     }
 
-    public List<PlaceInfoDTO> getPlacesWithinRadius(double centerLat, double centerLng, double radiusMeter, String category) {
+    public PlaceInfoResponseDTO getPlacesWithinRadius(double centerLat, double centerLng, double radiusMeter, String category, int offset, int limit) {
         List<Place> results = placesRepository.findNearby(centerLng, centerLat, radiusMeter, category);
-        return buildResponseListOfPlaces(results);
+
+        // Slice detailed list using pagination
+        int toIndex = Math.min(offset + limit, results.size());
+        List<Place> detailedPlaces = (offset < toIndex) ? results.subList(offset, toIndex) : Collections.emptyList();
+
+        // Convert detailed places
+        List<PlaceDetailedInfoDTO> detailedDTOs = detailedPlaces.stream()
+                .map(PlaceDetailedInfoDTO::new)
+                .collect(Collectors.toList());
+
+        // Convert full coordinate list
+        List<PlaceInfoDTO> allCoords = results.stream()
+                .map(PlaceInfoDTO::new)
+                .collect(Collectors.toList());
+
+        // Build response
+        PlaceInfoResponseDTO response = new PlaceInfoResponseDTO();
+        response.setDetailedPlaces(detailedDTOs);
+        response.setAllCoordinates(allCoords);
+        return response;
     }
 
-    public List<PlaceInfoDTO> findPlacesWithinPolygon(PolygonRequestDTO polygonRequestDTO) {
+    public PlaceInfoResponseDTO findPlacesWithinPolygon(PolygonRequestDTO polygonRequestDTO,int offset,int limit) {
         List<Place> results = placesRepository.findPlacesWithinPolygon(polygonRequestDTO);
-        return buildResponseListOfPlaces(results);
+
+        int toIndex = Math.min(offset + limit, results.size());
+        List<Place> detailedPlaces = (offset < toIndex) ? results.subList(offset, toIndex) : Collections.emptyList();
+
+        // Convert detailed places
+        List<PlaceDetailedInfoDTO> detailedDTOs = detailedPlaces.stream()
+                .map(PlaceDetailedInfoDTO::new)
+                .collect(Collectors.toList());
+
+        // Convert full coordinate list
+        List<PlaceInfoDTO> allCoords = results.stream()
+                .map(PlaceInfoDTO::new)
+                .collect(Collectors.toList());
+
+        // Build response
+        PlaceInfoResponseDTO response = new PlaceInfoResponseDTO();
+        response.setDetailedPlaces(detailedDTOs);
+        response.setAllCoordinates(allCoords);
+        return response;
+
     }
 
     private List<PlaceInfoDTO> buildResponseListOfPlaces(List<Place> places) {
