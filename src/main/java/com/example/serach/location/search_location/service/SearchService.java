@@ -31,8 +31,12 @@ public class SearchService {
         return placesRepository.getAllCategories();
     }
 
+    //todo: add pagination at DB level.
+
     public PlaceInfoResponseDTO getPlacesWithinRadius(double centerLat, double centerLng, double radiusMeter, String category, int offset, int limit) {
-        List<Place> results = placesRepository.findNearby(centerLng, centerLat, radiusMeter, category);
+        double maxDistanceInRadians = radiusMeter / 6378100.0;
+
+        List<Place> results = placesRepository.findNearby(centerLng, centerLat, maxDistanceInRadians, category);
 
         // Slice detailed list using pagination
         int toIndex = Math.min(offset + limit, results.size());
