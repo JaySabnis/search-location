@@ -22,22 +22,41 @@ public class OpenAIService {
 
     public static JsonNode callWithFunction(List<Map<String, Object>> history) throws IOException, ParseException {
         ObjectMapper mapper = new ObjectMapper();
-        String toolName = "get_food_places";
+        String toolName = "get_nearby_places";
 
         // STEP 1 — Initial OpenAI call (tool_choice: auto)
         Map<String, Object> toolFunction = Map.of(
                 "type", "function",
                 "function", Map.of(
-                        "name", toolName,
-                        "description", "Get top food places in a given location",
+                        "name", "get_nearby_places",  // Renamed from get_food_places
+                        "description", "Get nearby places of a specific type (restaurants, hotels, parks, etc.) in a given location",
                         "parameters", Map.of(
                                 "type", "object",
                                 "properties", Map.of(
-                                        "location", Map.of("type", "string"),
-                                        "cuisine", Map.of("type", "string"),
-                                        "radius", Map.of("type", "integer")
+                                        "location", Map.of(
+                                                "type", "string",
+                                                "description", "The city/area to search in, e.g., 'New York'"
+                                        ),
+                                        "place_type", Map.of(
+                                                "type", "string",
+                                                "description", "Type of place (restaurant, hotel, park, zoo, etc.)",
+                                                "enum", List.of(
+                                                        "restaurant", "hotel", "park",
+                                                        "zoo", "museum", "cafe",
+                                                        "shopping_mall", "apartment"
+                                                )
+                                        ),
+                                        "keyword", Map.of(
+                                                "type", "string",
+                                                "description", "Optional filter (e.g., 'Italian' for Italian restaurants, 'luxury' for hotels)"
+                                        ),
+                                        "radius", Map.of(
+                                                "type", "integer",
+                                                "description", "Search radius in meters (default: 3000)",
+                                                "default", 3000
+                                        )
                                 ),
-                                "required", List.of("location")
+                                "required", List.of("location", "place_type")  // Only location and place_type are mandatory
                         )
                 )
         );
@@ -81,11 +100,13 @@ public class OpenAIService {
                 Map<String, Object> args = mapper.readValue(argsJson, new TypeReference<>() {});
 
                 List<Map<String, Object>> toolOutput = switch (functionName) {
-                    case "get_food_places" -> GooglePlacesService.getFoodPlaces(
+                    case "get_nearby_places" -> GooglePlacesService.getNearbyPlaces(
                             args.get("location").toString(),
-                            args.getOrDefault("cuisine", "food").toString(),
+                            args.get("place_type").toString(),  // Changed from "cuisine" to "place_type"
+                            args.getOrDefault("keyword", "").toString(),  // New optional keyword parameter
                             (Integer) args.getOrDefault("radius", 3000)
                     );
+
                     default -> throw new RuntimeException("Unsupported function: " + functionName);
                 };
 
