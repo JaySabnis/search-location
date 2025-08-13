@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class OpenAIService {
     private static final String OPENAI_API_KEY = System.getenv("OPENAI_API_KEY");
@@ -28,15 +29,15 @@ public class OpenAIService {
         List<Map<String, Object>> history = new ArrayList<>(inputHistory);
         logHistory("Initial history", history);
 
-        // Define the tool function
+        // Define the tool function - make this mandatory
         Map<String, Object> toolFunction = createToolFunction();
 
-        // First API call
+        // First API call - force tool use by setting tool_choice to the specific function
         Map<String, Object> request = Map.of(
                 "model", GPT_MODEL,
                 "messages", history,
                 "tools", List.of(toolFunction),
-                "tool_choice", "auto"
+                "tool_choice", Map.of("type", "function", "function", Map.of("name", "get_nearby_places"))
         );
 
         String requestJson = mapper.writeValueAsString(request);
@@ -62,33 +63,72 @@ public class OpenAIService {
             history.add(assistantMessage);
             logHistory("After adding assistant message", history);
 
-            if (message.has("tool_calls")) {
-                JsonNode toolCall = message.path("tool_calls").get(0);
-                String callId = toolCall.path("id").asText();
-                String functionName = toolCall.path("function").path("name").asText();
-                String argsJson = toolCall.path("function").path("arguments").asText();
-                logDebug("Tool call arguments", argsJson);
-
-                // Process the tool call
-                List<Map<String, Object>> toolOutput = processToolCallSafely(functionName, argsJson);
-                logDebug("Tool output", mapper.writeValueAsString(toolOutput));
-
-                // Add tool response to history
-                Map<String, Object> toolResponse = Map.of(
-                        "role", "tool",
-                        "tool_call_id", callId,
-                        "name", functionName,
-                        "content", mapper.writeValueAsString(toolOutput)
-                );
-                history.add(toolResponse);
-                logHistory("After adding tool response", history);
-
-                // Make final API call
-                return makeFinalCall(history, toolOutput);
-            } else {
-                logDebug("No tool calls in response", "");
-                return message.path("content");
+            if (!message.has("tool_calls")) {
+                throw new RuntimeException("Expected tool call but none was returned");
             }
+
+            JsonNode toolCall = message.path("tool_calls").get(0);
+            String callId = toolCall.path("id").asText();
+            String functionName = toolCall.path("function").path("name").asText();
+            String argsJson = toolCall.path("function").path("arguments").asText();
+            logDebug("Tool call arguments", argsJson);
+
+            // Process the tool call
+            List<Map<String, Object>> toolOutput = processToolCallSafely(functionName, argsJson);
+            logDebug("Tool output", mapper.writeValueAsString(toolOutput));
+
+            // Add tool response to history - ensure proper structure
+            Map<String, Object> toolResponse = Map.of(
+                    "role", "tool",
+                    "tool_call_id", callId,
+                    "name", functionName,
+                    "content", mapper.writeValueAsString(toolOutput)
+            );
+            history.add(toolResponse);
+            logHistory("After adding tool response", history);
+
+            // Make final API call - don't force tool use this time
+            return makeFinalCall(history, toolOutput);
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static JsonNode makeFinalCall(List<Map<String, Object>> history, List<Map<String, Object>> toolOutput) throws IOException {
+        Map<String, Object> request = Map.of(
+                "model", GPT_MODEL,
+                "messages", history
+        );
+
+        String requestJson = mapper.writeValueAsString(request);
+        logDebug("Final request", requestJson);
+
+        HttpPost post = createPostRequest(requestJson);
+        try (CloseableHttpClient client = HttpClients.createDefault();
+             CloseableHttpResponse response = client.execute(post)) {
+
+            String body = EntityUtils.toString(response.getEntity());
+            logDebug("Final response", body);
+
+            JsonNode root = mapper.readTree(body);
+
+            if (root.has("error")) {
+                String error = root.path("error").toString();
+                logError("Final API call error", error);
+                throw new RuntimeException("OpenAI API error: " + error);
+            }
+
+            JsonNode finalMessage = root.path("choices").get(0).path("message");
+            Map<String, Object> finalMessageMap = mapper.convertValue(finalMessage, new TypeReference<>() {});
+            history.add(finalMessageMap);
+            logHistory("After final assistant message", history);
+
+            // Return both the tool output and the final message
+            Map<String, Object> result = Map.of(
+                    "tool_output", toolOutput,
+                    "final_response", finalMessageMap.get("content")
+            );
+            return mapper.valueToTree(result);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -122,52 +162,45 @@ public class OpenAIService {
         try {
             Map<String, Object> args = mapper.readValue(argsJson, new TypeReference<>() {});
             if ("get_nearby_places".equals(functionName)) {
-                return GooglePlacesService.getNearbyPlaces(
-                        args.get("location").toString(),
-                        args.get("place_type").toString(),
-                        args.getOrDefault("keyword", "").toString(),
-                        (Integer) args.getOrDefault("radius", 3000)
-                );
+                // Validate required parameters
+                String location = Optional.ofNullable(args.get("location"))
+                        .map(Object::toString)
+                        .orElseThrow(() -> new IllegalArgumentException("Location is required"));
+
+                String placeType = Optional.ofNullable(args.get("place_type"))
+                        .map(Object::toString)
+                        .orElseThrow(() -> new IllegalArgumentException("Place type is required"));
+
+                // Handle optional parameters with defaults
+                String keyword = Optional.ofNullable(args.get("keyword"))
+                        .map(Object::toString)
+                        .orElse("");
+
+                int radius = Optional.ofNullable(args.get("radius"))
+                        .map(val -> {
+                            if (val instanceof Number) {
+                                return ((Number) val).intValue();
+                            }
+                            try {
+                                return Integer.parseInt(val.toString());
+                            } catch (NumberFormatException e) {
+                                return 3000; // default if invalid
+                            }
+                        })
+                        .orElse(3000); // default if missing
+
+                return GooglePlacesService.getNearbyPlaces(location, placeType, keyword, radius);
             }
             throw new RuntimeException("Unsupported function: " + functionName);
         } catch (Exception e) {
             logError("Tool processing failed", e.getMessage());
-            return List.of(); // Return empty list on failure
-        }
-    }
-
-    private static JsonNode makeFinalCall(List<Map<String, Object>> history, List<Map<String, Object>> toolOutput)
-            throws IOException {
-        Map<String, Object> request = Map.of(
-                "model", GPT_MODEL,
-                "messages", history
-        );
-
-        String requestJson = mapper.writeValueAsString(request);
-        logDebug("Final request", requestJson);
-
-        HttpPost post = createPostRequest(requestJson);
-        try (CloseableHttpClient client = HttpClients.createDefault();
-             CloseableHttpResponse response = client.execute(post)) {
-
-            String body = EntityUtils.toString(response.getEntity());
-            logDebug("Final response", body);
-
-            JsonNode root = mapper.readTree(body);
-
-            if (root.has("error")) {
-                String error = root.path("error").toString();
-                logError("Final API call error", error);
-                throw new RuntimeException("OpenAI API error: " + error);
-            }
-
-            JsonNode finalMessage = root.path("choices").get(0).path("message");
-            history.add(mapper.convertValue(finalMessage, new TypeReference<>() {}));
-            logHistory("After final assistant message", history);
-
-            return mapper.valueToTree(toolOutput);
-        } catch (ParseException e) {
-            throw new RuntimeException(e);
+            // Return error information in the response
+            return List.of(Map.of(
+                    "error", "Tool processing failed",
+                    "message", e.getMessage(),
+                    "function", functionName,
+                    "arguments", argsJson
+            ));
         }
     }
 
