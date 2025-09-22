@@ -5,11 +5,15 @@ import com.example.serach.location.search_location.dto.PlaceInfoResponseDTO;
 import com.example.serach.location.search_location.dto.PolygonRequestDTO;
 import com.example.serach.location.search_location.entity.Place;
 import com.example.serach.location.search_location.service.SearchService;
+import jakarta.servlet.http.Cookie;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Slf4j
