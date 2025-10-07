@@ -2,10 +2,15 @@ package com.example.serach.location.search_location.session;
 
 import org.springframework.stereotype.Component;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Component
 public class SessionStore {
@@ -19,6 +24,8 @@ public class SessionStore {
             public int requestCount;
             public boolean recaptchaVerified;
             public Instant createdAt;
+            public String secretKey;
+            public Set<String> usedSignatures = ConcurrentHashMap.newKeySet();
 
             public SessionInfo(Instant expiry, String fingerprint, String userAgent, String ipAddress, boolean recaptchaVerified) {
                 this.expiry = expiry;
@@ -29,6 +36,7 @@ public class SessionStore {
                 this.lastActivity = Instant.now();
                 this.createdAt = Instant.now();
                 this.requestCount = 0;
+                this.secretKey = UUID.randomUUID().toString();
             }
         }
 
@@ -120,4 +128,54 @@ public class SessionStore {
             Instant now = Instant.now();
             sessions.entrySet().removeIf(entry -> now.isAfter(entry.getValue().expiry));
         }
+
+        // Add these methods to SessionStore class
+        public String generateRequestSignature(String sessionId, String path, String method, String timestamp) {
+            SessionInfo info = sessions.get(sessionId);
+            if (info == null) return null;
+
+            try {
+                String data = sessionId + "|" + path + "|" + method + "|" + timestamp;
+                Mac mac = Mac.getInstance("HmacSHA256");
+                SecretKeySpec secretKeySpec = new SecretKeySpec(info.secretKey.getBytes(), "HmacSHA256");
+                mac.init(secretKeySpec);
+                byte[] signatureBytes = mac.doFinal(data.getBytes());
+                return Base64.getEncoder().encodeToString(signatureBytes);
+            } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+                return null;
+            }
+        }
+
+        public boolean validateRequestSignature(String sessionId, String signature, String path, String method, String timestamp) {
+            SessionInfo info = sessions.get(sessionId);
+            if (info == null) return false;
+
+            String expectedSignature = generateRequestSignature(sessionId, path, method, timestamp);
+            return expectedSignature != null && expectedSignature.equals(signature);
+        }
+
+    public boolean isSignatureReplayed(String sessionId, String signature) {
+        SessionInfo info = sessions.get(sessionId);
+        if (info == null) return true;
+
+        // Check if signature was already used
+        if (info.usedSignatures.contains(signature)) {
+            return true;
+        }
+
+        // Add to used signatures (with cleanup for memory management)
+        info.usedSignatures.add(signature);
+
+        // Clean up old signatures if set gets too large (prevent memory issues)
+        if (info.usedSignatures.size() > 1000) {
+            // Keep only the most recent 500 signatures
+            List<String> recentSignatures = info.usedSignatures.stream()
+                    .skip(info.usedSignatures.size() - 500)
+                    .toList();
+            info.usedSignatures.clear();
+            info.usedSignatures.addAll(recentSignatures);
+        }
+
+        return false;
+    }
 }

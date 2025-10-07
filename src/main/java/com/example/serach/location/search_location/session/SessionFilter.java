@@ -66,6 +66,40 @@ public class SessionFilter extends OncePerRequestFilter {
             return;
         }
 
+
+        String requestSignature = request.getHeader("X-Request-Signature");
+        String timestamp = request.getHeader("X-Request-Timestamp");
+
+        if (requestSignature == null || timestamp == null ||
+                !sessionStore.validateRequestSignature(sessionId, requestSignature,
+                        request.getRequestURI(), request.getMethod(), timestamp)) {
+
+            System.out.println("Request signature validation failed for session: " + sessionId);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"invalid_signature\",\"message\":\"Request signature validation failed.\"}");
+            return;
+        }
+
+// Also add timestamp validation to prevent replay attacks
+        long requestTime = Long.parseLong(timestamp);
+        long currentTime = System.currentTimeMillis();
+        if (Math.abs(currentTime - requestTime) > 30000) { // 30 seconds window
+            System.out.println("Request timestamp expired for session: " + sessionId);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"expired_timestamp\",\"message\":\"Request timestamp expired.\"}");
+            return;
+        }
+
+        if (sessionStore.isSignatureReplayed(sessionId, requestSignature)) {
+            System.out.println("Replay attack detected for session: " + sessionId);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"replay_attack\",\"message\":\"Request signature already used.\"}");
+            return;
+        }
+
         filterChain.doFilter(request, response);
     }
 

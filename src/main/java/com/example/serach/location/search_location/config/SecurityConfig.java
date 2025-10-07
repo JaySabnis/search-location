@@ -24,7 +24,7 @@ public class SecurityConfig {
                 .cors(cors -> {}) // enable CORS handling
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/browser-handshake").permitAll()
-                        .requestMatchers("/v1/search/**").authenticated()
+                        .requestMatchers("/v1/search/**").permitAll()
                         .anyRequest().denyAll()
                 )
                 .addFilterBefore(sessionFilter, UsernamePasswordAuthenticationFilter.class);

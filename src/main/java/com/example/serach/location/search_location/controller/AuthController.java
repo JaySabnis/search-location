@@ -15,7 +15,10 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 
@@ -34,6 +37,10 @@ public class AuthController {
 
     @Value("${recaptcha.secret}")
     private String recaptchaSecret;
+
+    // Add this property
+    @Value("${encryption.key}")
+    private String encryptionKey;
 
     @PostMapping("/browser-handshake")
     public ResponseEntity<?> handshake(@RequestBody Map<String,String> body, HttpServletRequest request, HttpServletResponse response) {
@@ -73,6 +80,9 @@ public class AuthController {
 
             sessionStore.create(sessionId, fingerprint, userAgent, clientIp, true);
 
+            // Modify the response in handshake method to include encrypted secret
+            String encryptedSecret = encrypt(sessionStore.getSessionInfo(sessionId).secretKey, encryptionKey);
+
             ResponseCookie cookie = ResponseCookie.from("SESSION_ID", sessionId)
                     .httpOnly(true)
                     .secure(false)
@@ -85,7 +95,8 @@ public class AuthController {
 
             return ResponseEntity.ok(Map.of(
                     "status", "ok",
-                    "sessionId", sessionId
+                    "sessionId", sessionId,
+                    "secret", encryptedSecret
             ));
 
         } catch (Exception e) {
@@ -93,5 +104,14 @@ public class AuthController {
             e.printStackTrace();
             return ResponseEntity.status(500).body(Map.of("error", "recaptcha_verification_failed"));
         }
+    }
+
+    // Add encryption method
+    private String encrypt(String data, String key) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        SecretKeySpec secretKey = new SecretKeySpec(key.getBytes(), "AES");
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+        byte[] encryptedData = cipher.doFinal(data.getBytes());
+        return Base64.getEncoder().encodeToString(encryptedData);
     }
 }
