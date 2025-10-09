@@ -13,7 +13,7 @@ public class AppCorsConfig {
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
-        config.addAllowedOrigin("http://localhost:8080"); // your frontend
+        config.addAllowedOrigin("*"); // todo: later restrict to only one FE domain
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         config.setAllowCredentials(true);
