@@ -85,8 +85,8 @@ public class AuthController {
 
             ResponseCookie cookie = ResponseCookie.from("SESSION_ID", sessionId)
                     .httpOnly(true)
-                    .secure(false)
-                    .sameSite("Lax")
+                    .secure(true)              // must be true in production HTTPS
+                    .sameSite("None")          // allow cross-site requests, if same origin then change it.
                     .path("/")
                     .maxAge(Duration.ofMinutes(15))
                     .build();
